@@ -7,17 +7,31 @@ import numpy as np
 class DQNAgent:
     def __init__(self, input_dim, hidden_dim, action_dim, global_dim):
         # Main Q-network: approximates Q(s,a) using the bipartite GNN
+        #self.model = BipartiteGNN(
+        #    var_in_channels=2,
+        #    con_in_channels=2,
+        #    hidden_channels=hidden_dim,
+        #    num_actions=action_dim,
+        #    global_feat_size=global_dim
+        #)
         self.model = BipartiteGNN(
-            var_in_channels=2,
-            con_in_channels=2,
+            var_in_channels=input_dim,
+            con_in_channels=input_dim,
             hidden_channels=hidden_dim,
             num_actions=action_dim,
             global_feat_size=global_dim
         )
         # Target Q-network: same architecture, used to compute stable TD targets
+        #self.target_model = BipartiteGNN(
+        #    var_in_channels=2,
+        #    con_in_channels=2,
+        #    hidden_channels=hidden_dim,
+        #    num_actions=action_dim,
+        #    global_feat_size=global_dim
+        #)
         self.target_model = BipartiteGNN(
-            var_in_channels=2,
-            con_in_channels=2,
+            var_in_channels=input_dim,
+            con_in_channels=input_dim,
             hidden_channels=hidden_dim,
             num_actions=action_dim,
             global_feat_size=global_dim
@@ -57,11 +71,19 @@ class DQNAgent:
             # All nodes belong to graph index 0
             batch_idx = torch.zeros(pyg_data.num_nodes, dtype=torch.long)
             # Q(s,·) for the current state
+            #q_values = self.model(
+            #    pyg_data.x,
+            #    pyg_data.edge_index,
+            #    batch_idx,
+            #    global_tensor
+            #)
+            edge_w = getattr(pyg_data, "edge_weight", None)
             q_values = self.model(
                 pyg_data.x,
                 pyg_data.edge_index,
                 batch_idx,
-                global_tensor
+                global_tensor,
+                edge_weight=edge_w
             )
         # Return greedy action
         return torch.argmax(q_values).item()
@@ -83,7 +105,9 @@ class DQNAgent:
             batch_idx = torch.zeros(pyg.num_nodes, dtype=torch.long)
 
             # Q(s,·) from current network
-            q_values = self.model(pyg.x, pyg.edge_index, batch_idx, glob_t)
+            #q_values = self.model(pyg.x, pyg.edge_index, batch_idx, glob_t)
+            edge_w = getattr(pyg, "edge_weight", None)
+            q_values = self.model(pyg.x, pyg.edge_index, batch_idx, glob_t, edge_weight=edge_w)
             current_q = q_values[0, act]  # Q(s,a) for the action taken
 
             # DQN target: r + γ max_a' Q_target(s',a') if not done
@@ -92,12 +116,18 @@ class DQNAgent:
                 with torch.no_grad():
                     next_glob_t = torch.from_numpy(next_glob).float().unsqueeze(0)
                     next_batch_idx = torch.zeros(next_pyg.num_nodes, dtype=torch.long)
+                    #next_q = self.target_model(
+                    #    next_pyg.x,
+                    #    next_pyg.edge_index,
+                    #    next_batch_idx,
+                    #    next_glob_t
+                    #)
+                    next_edge_w = getattr(next_pyg, "edge_weight", None)
                     next_q = self.target_model(
-                        next_pyg.x,
-                        next_pyg.edge_index,
-                        next_batch_idx,
-                        next_glob_t
+                        next_pyg.x, next_pyg.edge_index, next_batch_idx, next_glob_t,
+                        edge_weight=next_edge_w
                     )
+
                     target_q += self.gamma * torch.max(next_q).item()
 
             target_tensor = torch.tensor(target_q, dtype=torch.float)

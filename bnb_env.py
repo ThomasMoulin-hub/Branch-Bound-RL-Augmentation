@@ -111,27 +111,83 @@ class BBEnv:
 
         return [child0, child1]
 
+    #def get_state_features(self):
+    #    """
+    #    Global B&B features used as RL "state":
+    #    [average depth of fringe, relative gap (UB vs best LB), fringe size].
+    #    """
+    #    if not self.fringe:
+    #        return np.zeros(3, dtype=np.float32)
+#
+    #    depths = [n.depth for n in self.fringe]
+    #    avg_depth = float(np.mean(depths))
+    #    fringe_size = len(self.fringe)
+#
+    #    best_lb = min(n.lower_bound for n in self.fringe)
+    #    gap = 0.0
+    #    if self.global_ub < float('inf'):
+    #        denom = max(1e-9, abs(best_lb))
+    #        gap = abs(self.global_ub - best_lb) / denom
+#
+    #    return np.array([avg_depth, gap, fringe_size], dtype=np.float32)
+
     def get_state_features(self):
         """
-        Global B&B features used as RL "state":
-        [average depth of fringe, relative gap (UB vs best LB), fringe size].
+        Richer global B&B features (dynamic state).
+        Returns float32 vector.
+
+        Features:
+        0 avg_depth
+        1 max_depth
+        2 fringe_size
+        3 best_lb (min)
+        4 worst_lb (max)
+        5 mean_lb
+        6 std_lb
+        7 gap (as before)
+        8 mean_node_fractionality (avg over fringe nodes)
+        9 max_node_fractionality
         """
         if not self.fringe:
-            return np.zeros(3, dtype=np.float32)
+            return np.zeros(10, dtype=np.float32)
 
-        depths = [n.depth for n in self.fringe]
+        depths = np.array([n.depth for n in self.fringe], dtype=np.float32)
+        lbs = np.array([n.lower_bound for n in self.fringe], dtype=np.float32)
+
         avg_depth = float(np.mean(depths))
-        fringe_size = len(self.fringe)
+        max_depth = float(np.max(depths))
+        fringe_size = float(len(self.fringe))
 
-        best_lb = min(n.lower_bound for n in self.fringe)
+        best_lb = float(np.min(lbs))
+        worst_lb = float(np.max(lbs))
+        mean_lb = float(np.mean(lbs))
+        std_lb = float(np.std(lbs))
+
         gap = 0.0
         if self.global_ub < float('inf'):
             denom = max(1e-9, abs(best_lb))
-            gap = abs(self.global_ub - best_lb) / denom
+            gap = float(abs(self.global_ub - best_lb) / denom)
 
-        return np.array([avg_depth, gap, fringe_size], dtype=np.float32)
+        # Fractionality stats over fringe (each node has an LP solution stored)
+        node_fracs = []
+        for n in self.fringe:
+            x = n.lp_solution
+            if x is None:
+                continue
+            frac = np.abs(x - np.round(x))
+            node_fracs.append(float(np.mean(frac)))
+        if len(node_fracs) == 0:
+            mean_node_frac = 0.0
+            max_node_frac = 0.0
+        else:
+            mean_node_frac = float(np.mean(node_fracs))
+            max_node_frac = float(np.max(node_fracs))
 
-
+        return np.array([
+            avg_depth, max_depth, fringe_size,
+            best_lb, worst_lb, mean_lb, std_lb,
+            gap, mean_node_frac, max_node_frac
+        ], dtype=np.float32)
 
     def step(self, action):
         """

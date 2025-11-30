@@ -5,6 +5,8 @@ import torch.nn.functional as F
 from torch_geometric.data import Data
 from torch_geometric.nn import GCNConv, global_mean_pool
 import random
+import matplotlib   #Amirreza
+matplotlib.use('TkAgg') #Amirreza
 import matplotlib.pyplot as plt
 
 
@@ -33,8 +35,10 @@ def train_rl_bnb(num_episodes=100, problem_type="cover"):
     gen = get_generator(problem_type, n_rows=25, n_cols=50, density=0.3)
     # DQN agent using a GNN backbone; action_dim=3 because we have 3 node-selection heuristics
     agent = DQNAgent(input_dim=4, hidden_dim=32, action_dim=3, global_dim=3)
+    agent = DQNAgent(input_dim=6, hidden_dim=32, action_dim=3, global_dim=10)
 
     rewards_history = []
+    nodes_history = []
 
     print(f"Training on {num_episodes} episodes ({problem_type})...")
 
@@ -81,14 +85,14 @@ def train_rl_bnb(num_episodes=100, problem_type="cover"):
         # Single update at end of episode on all collected transitions
         loss = agent.update(buffer)
         rewards_history.append(total_reward)
-
+        nodes_history.append(env.steps)
         if episode % 5 == 0:
             print(
                 f"Episode {episode}: R = {total_reward:.2f}, "
                 f"Nodes = {env.steps}, eps = {agent.epsilon:.3f}, loss = {loss:.4f}"
             )
 
-    return agent, rewards_history
+    return agent, rewards_history, nodes_history
 
 
 def evaluate_heuristics(agent=None, problem_type="cover"):
@@ -145,7 +149,8 @@ def evaluate_heuristics(agent=None, problem_type="cover"):
 
 if __name__ == "__main__":
     # Train the RL-controlled B&B on a set-cover distribution
-    trained_agent, history = train_rl_bnb(num_episodes=120, problem_type="cover")
+    trained_agent, history, nodes = train_rl_bnb(num_episodes=1000, problem_type="cover")
+
 
     # Plot cumulative reward per episode
     plt.plot(history)
@@ -156,3 +161,35 @@ if __name__ == "__main__":
 
     # RL vs Best-First vs DFS
     evaluate_heuristics(trained_agent, problem_type="cover")
+
+
+    def moving_average(x, w=100):
+        x = np.asarray(x, dtype=float)
+        if len(x) < w:
+            return np.full_like(x, np.nan, dtype=float)
+        ma = np.convolve(x, np.ones(w) / w, mode='valid')
+        return np.concatenate([np.full(w - 1, np.nan), ma])
+
+
+    w = 100
+    rw_ma = moving_average(history, w=w)
+    nd_ma = moving_average(nodes, w=w)
+
+    plt.figure()
+    plt.plot(history, label="reward")
+    plt.plot(rw_ma, label=f"reward MA({w})")
+    plt.title("Reward per episode")
+    plt.xlabel("Episode")
+    plt.grid(True)
+    plt.legend()
+    plt.show()
+
+    plt.figure()
+    plt.plot(nodes, label="nodes explored")
+    plt.plot(nd_ma, label=f"nodes MA({w})")
+    plt.title("Nodes explored per episode")
+    plt.xlabel("Episode")
+    plt.grid(True)
+    plt.legend()
+    plt.show()
+
