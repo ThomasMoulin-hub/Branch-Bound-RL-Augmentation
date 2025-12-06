@@ -28,7 +28,7 @@ n_heuristics = len(name_act)
 
 
 problems = {
-    "milp": {"n_cons": 6, "n_var": 20, "density": 0.5}
+    "milp": {"n_cons": 6, "n_var": 32, "density": 0.4}
 }
 
 
@@ -51,64 +51,83 @@ def get_agent(problem_type: str):
 
 
 
-def train_rl_bnb(num_episodes, problem_type="milp"):
+def train_rl_bnb(num_episodes, problem_type="milp", batch_size=32):
     gen = get_generator(problem_type)
     agent = get_agent(problem_type)
 
-    rewards_history = []
-    nodes_history = []
+    rewards_history = []  # batch avg
+    nodes_history = []    # batch avg
 
     print(f"Training on {num_episodes} episodes ({problem_type}):")
 
+    batch_reward = 0.0
+    batch_nodes = 0.0
+    batch_loss = 0.0
+    batch_count = 0
+
     for episode in range(num_episodes):
 
-        instance = gen.generate() # get a new instance
+        instance = gen.generate()
         env = BBEnv(instance)
 
-        pyg_data = milp_to_pyg_data(instance)   # Static graph representation of the MILP (no change within episode)
-        global_state = env.get_state_features() # not static
+        pyg_data = milp_to_pyg_data(instance)
+        global_state = env.get_state_features()
 
         total_reward = 0.0
-        buffer = []          # stores transitions for the episode
-        truncated = False    # step cutoff
+        buffer = []
+        truncated = False
 
         while not env.done:
-            
             action = agent.get_action(pyg_data, global_state)
-
             next_global_state, reward, done = env.step(action)
 
-            buffer.append( # Store transition
+            buffer.append(
                 (pyg_data, global_state, action, reward,
-                 pyg_data, next_global_state, done))
+                 pyg_data, next_global_state, done)
+            )
 
             global_state = next_global_state
             total_reward += reward
 
-
-            if env.steps > cutoff: # safety cutoff on the nb of explored nodes
+            if env.steps > cutoff:
                 truncated = True
                 break
 
-
-        # If the episode was truncated we mark last transition as terminal for training
-        if truncated and buffer: 
+        if truncated and buffer:
             pyg, glob, act, rew, next_pyg, next_glob, _ = buffer[-1]
             buffer[-1] = (pyg, glob, act, rew, next_pyg, next_glob, True)
 
-
-        # Single update on all collected transitions
         loss = agent.update(buffer)
-        rewards_history.append(total_reward)
-        nodes_history.append(env.steps)
-        if episode % 10 == 0:
+
+        # accumulate batch stats
+        batch_reward += total_reward
+        batch_nodes += env.steps
+        batch_loss += loss
+        batch_count += 1
+
+        # when batch is full, log averages
+        if (episode + 1) % batch_size == 0:
+            avg_reward = batch_reward / batch_count
+            avg_nodes = batch_nodes / batch_count
+            avg_loss = batch_loss / batch_count
+
+            rewards_history.append(avg_reward)
+            nodes_history.append(avg_nodes)
+
             print(
-                f"Episode {episode}: R = {total_reward:.2f}, "
-                f"Nodes = {env.steps}, eps = {agent.epsilon:.3f}, loss = {loss:.4f}"
+                f"Episode {episode + 1}: "
+                f"batch_avg_reward = {avg_reward:.2f}, "
+                f"batch_avg_nodes = {avg_nodes:.2f}, "
+                f"batch_avg_loss = {avg_loss:.4f}, "
+                f"eps = {agent.epsilon:.3f}"
             )
 
-    return agent, rewards_history, nodes_history
+            batch_reward = 0.0
+            batch_nodes = 0.0
+            batch_loss = 0.0
+            batch_count = 0
 
+    return agent, rewards_history, nodes_history
 
 
 
@@ -171,39 +190,31 @@ def eval_heuristics(agent=None, problem_type="milp", num_test = 150):
 
 
 if __name__ == "__main__":
-
     n_train_ep = 512
-    n_test_ep = 70
+    n_test_ep = 100
     problem_type = "milp"
+    batch_size = 16
 
-
-    rl_agent, rewards, nodes = train_rl_bnb(num_episodes=n_train_ep, problem_type=problem_type)
+    rl_agent, rewards, nodes = train_rl_bnb(
+        num_episodes=n_train_ep,
+        problem_type=problem_type,
+        batch_size=batch_size,
+    )
     eval_results = eval_heuristics(agent=rl_agent, problem_type=problem_type, num_test=n_test_ep)
 
+    x = np.arange(len(rewards)) * batch_size  # approx position in episodes
 
-
-    # put this in util or plot file idk
     plt.figure()
-    plt.plot(rewards, label="reward per episode")
-    w = 10
-    cumS = np.cumsum(np.insert(rewards, 0, 0))
-    rw_ma = (cumS[w:] - cumS[:-w]) / float(w)
-    plt.plot(range(w - 1, len(rewards)), rw_ma, label=f"reward MA({w})")
-    plt.title("Reward per episode")
+    plt.plot(x, rewards, label=f"batch_avg_reward (batch={batch_size})")
+    plt.title("Reward per batch")
     plt.xlabel("Episode")
     plt.grid(True)
     plt.legend()
     plt.show()
 
-
-
     plt.figure()
-    plt.plot(nodes, label="nodes explored")
-    w = 10
-    cumS = np.cumsum(np.insert(nodes, 0, 0))
-    nd_ma = (cumS[w:] - cumS[:-w]) / float(w)
-    plt.plot(range(w - 1, len(nodes)), nd_ma, label=f"nodes MA({w})")
-    plt.title("Nodes explored per episode")
+    plt.plot(x, nodes, label=f"batch_avg_nodes (batch={batch_size})")
+    plt.title("Nodes explored per batch")
     plt.xlabel("Episode")
     plt.grid(True)
     plt.legend()
