@@ -1,5 +1,19 @@
 import numpy as np
 
+problems = {
+    "milp": {"n_cons": 6, "n_var": 20, "density": 0.5}
+}
+
+
+def get_generator(problem_type: str):
+    match problem_type:
+        case "milp":
+            p = problems["milp"] # problem parameters, easier to change and personalize
+            return RandomMILPGenerator(n_cons=p["n_cons"], n_vars=p["n_var"], density=p["density"])
+        case _:
+            raise Exception("pls provide existing problem")
+        
+
 class SetCoverGenerator:
 
     def __init__(self, n_rows=50, n_cols=100, density=0.4):
@@ -28,7 +42,6 @@ class SetCoverGenerator:
         b = np.ones(self.n_rows, dtype=float)
 
         return {'A': A, 'c': c, 'b': b, 'type': 'cover'}
-
 
 
 class RandomMILPGenerator:

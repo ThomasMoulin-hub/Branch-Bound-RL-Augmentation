@@ -11,9 +11,12 @@ from torch_geometric.nn import GCNConv
 class BipartiteGNN(nn.Module):
 
     def __init__(self, var_in_channels, con_in_channels,
-                 hidden_channels, num_actions, global_feat_size):
+                 hidden_channels, num_actions, global_feat_size,
+                 scalar_output=False):
         super(BipartiteGNN, self).__init__()
 
+        # Set output dimension, either num_actions or scalar
+        output_dim = num_actions if not scalar_output else 1
 
         self.input_norm = nn.LayerNorm(var_in_channels)
         self.input_emb = nn.Linear(var_in_channels, hidden_channels)
@@ -30,7 +33,7 @@ class BipartiteGNN(nn.Module):
         self.head = nn.Sequential(
             nn.Linear(hidden_channels * 3, hidden_channels),
             nn.ReLU(),
-            nn.Linear(hidden_channels, num_actions)
+            nn.Linear(hidden_channels, output_dim)
         )
 
     @staticmethod

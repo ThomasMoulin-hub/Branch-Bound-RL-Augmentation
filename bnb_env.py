@@ -34,6 +34,10 @@ class BBEnv:
         self.problem_type = instance.get('type', 'cover')
         self.n_vars = len(self.c)
 
+        # Initialize environment
+        self.reset()
+        
+    def reset(self):
         # root node: no fixed vars
         root = BBNode(
             lower_bound=-np.inf,
