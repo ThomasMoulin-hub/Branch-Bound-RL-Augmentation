@@ -1,6 +1,6 @@
 import numpy as np
 import matplotlib 
-#matplotlib.use('TkAgg') #Amirreza
+matplotlib.use('TkAgg') #Amirreza
 import matplotlib.pyplot as plt
 from datetime import datetime
 import sys
@@ -12,6 +12,9 @@ warnings.filterwarnings("ignore", message=".*_register_pytree_node.*")
 from train import train_DQN_Agent, train_PG_Agent
 from evaluate import eval_heuristics_dqn, eval_heuristics_pg
 from logger import Logger
+from utils.plotting import plot_series
+
+
 
 
 if __name__ == "__main__":
@@ -24,7 +27,8 @@ if __name__ == "__main__":
     logfilepath = "log/" + datetime_string + "_" + logfilename
 
     # Create log
-    log = Logger(logfilepath)
+    #log = Logger(logfilepath)
+    log = Logger(logfilename)
 
     problem_type = "milp"
 
@@ -45,28 +49,5 @@ if __name__ == "__main__":
     eval_results = eval_heuristics_pg(log, agent=rl_agent, problem_type=problem_type, num_test=n_test_ep)
 
     # put this in util or plot file idk
-    plt.figure()
-    plt.plot(rewards, label="reward per episode")
-    w = 10
-    cumS = np.cumsum(np.insert(rewards, 0, 0))
-    rw_ma = (cumS[w:] - cumS[:-w]) / float(w)
-    plt.plot(range(w - 1, len(rewards)), rw_ma, label=f"reward MA({w})")
-    plt.title("Reward per episode")
-    plt.xlabel("Episode")
-    plt.grid(True)
-    plt.legend()
-    plt.show()
-
-
-
-    plt.figure()
-    plt.plot(nodes, label="nodes explored")
-    w = 10
-    cumS = np.cumsum(np.insert(nodes, 0, 0))
-    nd_ma = (cumS[w:] - cumS[:-w]) / float(w)
-    plt.plot(range(w - 1, len(nodes)), nd_ma, label=f"nodes MA({w})")
-    plt.title("Nodes explored per episode")
-    plt.xlabel("Episode")
-    plt.grid(True)
-    plt.legend()
-    plt.show()
+    plot_series(rewards, "Reward per episode", "Reward", w=10)
+    plot_series(nodes, "Nodes explored per episode", "Nodes explored", w=10)
