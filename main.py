@@ -32,12 +32,12 @@ if __name__ == "__main__":
 
     problem_type = "milp"
 
-    n_train_ep = 10000
+    n_train_ep = 100
     n_train_instances = 2
     n_train_trajs = 2
-    train_cutoff = 1000
+    train_cutoff = 100
     
-    n_test_ep = 500
+    n_test_ep = 50
     #plotting settings
     ma_window = 50
 
