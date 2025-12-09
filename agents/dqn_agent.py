@@ -8,16 +8,16 @@ class DQNAgent:
     def __init__(self, input_dim, hidden_dim, action_dim, global_dim):
         # Main Q-network: approximates Q(s,a) using the bipartite GNN
         self.model = BipartiteGNN(
-            var_in_channels=2,
-            con_in_channels=2,
+            var_in_channels=input_dim,
+            con_in_channels=input_dim,
             hidden_channels=hidden_dim,
             num_actions=action_dim,
             global_feat_size=global_dim
         )
         # Target Q-network: same architecture, used to compute stable TD targets
         self.target_model = BipartiteGNN(
-            var_in_channels=2,
-            con_in_channels=2,
+            var_in_channels=input_dim,
+            con_in_channels=input_dim,
             hidden_channels=hidden_dim,
             num_actions=action_dim,
             global_feat_size=global_dim

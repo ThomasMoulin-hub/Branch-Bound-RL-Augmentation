@@ -1,21 +1,21 @@
 import numpy as np
 import plotly.graph_objects as go
 
-def moving_avg(x, w=10):
+def moving_avg(x, MA_window=30):
     x = np.asarray(x, dtype=float)
-    if len(x) < w:
+    if len(x) < MA_window:
         return np.array([]), np.array([])
-    ma = np.convolve(x, np.ones(w)/w, mode="valid")
-    idx = np.arange(w-1, len(x))
+    ma = np.convolve(x, np.ones(MA_window)/MA_window, mode="valid")
+    idx = np.arange(MA_window-1, len(x))
     return idx, ma
 
-def plot_series(y, title, y_label, w=10):
+def plot_series(y, title, y_label, MA_window=30, mode="lines"):
     y = np.asarray(y, dtype=float)
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=np.arange(len(y)), y=y, mode="lines", name="per episode"))
-    idx, ma = moving_avg(y, w)
+    fig.add_trace(go.Scatter(x=np.arange(len(y)), y=y, mode=mode, name="per episode"))
+    idx, ma = moving_avg(y, MA_window)
     if len(ma):
-        fig.add_trace(go.Scatter(x=idx, y=ma, mode="lines", name=f"MA({w})"))
+        fig.add_trace(go.Scatter(x=idx, y=ma, mode="lines", name=f"MA({MA_window})", line=dict(width=5, color='red')))
     fig.update_layout(
         title=title,
         xaxis_title="Episode",

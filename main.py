@@ -32,15 +32,18 @@ if __name__ == "__main__":
 
     problem_type = "milp"
 
-    n_train_ep = 100
+    n_train_ep = 10000
     n_train_instances = 2
     n_train_trajs = 2
-    train_cutoff = 100
+    train_cutoff = 1000
     
-    n_test_ep = 50
+    n_test_ep = 500
+    #plotting settings
+    ma_window = 50
 
-
-    rl_agent, rewards, nodes = train_PG_Agent(log,
+    # Policy Gradient Agent
+    print("\n\nTraining PG Agent...\n")
+    rl_agent, PG_rewards, PG_nodes = train_PG_Agent(log,
                                               num_episodes=n_train_ep,
                                               num_instances=n_train_instances,
                                               num_trajs=n_train_trajs,
@@ -48,6 +51,12 @@ if __name__ == "__main__":
                                               cutoff=train_cutoff)
     eval_results = eval_heuristics_pg(log, agent=rl_agent, problem_type=problem_type, num_test=n_test_ep)
 
-    # put this in util or plot file idk
-    plot_series(rewards, "Reward per episode", "Reward", w=10)
-    plot_series(nodes, "Nodes explored per episode", "Nodes explored", w=10)
+    plot_series(PG_rewards, "Reward per episode: Policy Gradient", "Reward", MA_window=ma_window, mode="lines")
+    plot_series(PG_nodes, "Nodes explored per episode: Policy Gradient", "Nodes explored", MA_window=ma_window , mode="lines")
+    #DQN Agent
+    print("\n\nTraining DQN Agent...\n")
+    DQN_rl_agent, DQN_rewards, DQN_nodes = train_DQN_Agent(log,num_episodes=n_train_ep,
+                                                           problem_type=problem_type,cutoff=train_cutoff)
+    DQN_eval_results = eval_heuristics_dqn(log, agent=DQN_rl_agent, problem_type=problem_type, num_test=n_test_ep)
+    plot_series(DQN_rewards, "Reward per episode: DQN", "Reward", MA_window=ma_window)
+    plot_series(DQN_nodes, "Nodes explored per episode: DQN", "Nodes explored", MA_window=ma_window)
