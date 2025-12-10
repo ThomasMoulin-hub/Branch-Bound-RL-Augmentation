@@ -12,7 +12,7 @@ name_act = [ # make this cleaner with above also
 n_heuristics = len(name_act)
 
 
-def get_agent(problem_type: str, agent_type: str):
+def get_agent(problem_type: str, agent_type: str, lr=1e-3, gamma=.99):
     input_dim = None
 
     match problem_type:
@@ -24,8 +24,8 @@ def get_agent(problem_type: str, agent_type: str):
         
     match agent_type:
         case "dqn":
-            return DQNAgent(input_dim=input_dim, hidden_dim=32, action_dim=n_heuristics, global_dim=10)
+            return DQNAgent(input_dim=input_dim, hidden_dim=32, action_dim=n_heuristics, global_dim=10, lr=lr, gamma=gamma)
         case "pg":
-            return PolicyGradientAgent(input_dim=input_dim, hidden_dim=32, action_dim=n_heuristics, global_dim=10)
+            return PolicyGradientAgent(input_dim=input_dim, hidden_dim=32, action_dim=n_heuristics, global_dim=10, lr=1e-3, gamma=gamma)
         case _:
             raise Exception("pls pick existing agent")

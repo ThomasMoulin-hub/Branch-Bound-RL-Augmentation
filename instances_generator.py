@@ -58,7 +58,7 @@ class RandomMILPGenerator:
         A[mask] = np.random.randint(1, self.max_coef + 1, size=mask.sum())
 
    
-        # make sure no collumns or lign is full null
+        # make sure no columns or row is full null
         for i in range(self.n_cons):
             if np.all(A[i] == 0):
                 j = np.random.randint(0, self.n_vars)

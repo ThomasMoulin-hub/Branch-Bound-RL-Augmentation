@@ -9,7 +9,7 @@ def moving_avg(x, MA_window=30):
     idx = np.arange(MA_window-1, len(x))
     return idx, ma
 
-def plot_series(y, title, y_label, MA_window=30, mode="lines"):
+def plot_series(y, title, y_label, MA_window=30, mode="lines", filename=None):
     y = np.asarray(y, dtype=float)
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=np.arange(len(y)), y=y, mode=mode, name="per episode"))
@@ -23,6 +23,8 @@ def plot_series(y, title, y_label, MA_window=30, mode="lines"):
         template="plotly_white",
         hovermode="x unified",
     )
+    if filename:
+        fig.write_image(filename)
     fig.show()
 
 

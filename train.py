@@ -15,10 +15,10 @@ def discounted_rewards(r, gamma):
     return list(discounted_r)
 
 
-def train_DQN_Agent(log, num_episodes, problem_type="milp", cutoff=1000):
+def train_DQN_Agent(log, num_episodes, problem_type="milp", cutoff=1000, lr=1e-3, gamma=.99):
     """ Train DQN agent using one instance per epsiode """
     gen = get_generator(problem_type)
-    agent = get_agent(problem_type, "dqn")
+    agent = get_agent(problem_type, "dqn", lr, gamma)
 
     rewards_history = []
     nodes_history = []
@@ -75,9 +75,9 @@ def train_DQN_Agent(log, num_episodes, problem_type="milp", cutoff=1000):
     return agent, rewards_history, nodes_history
 
 
-def train_PG_Agent(log, num_episodes, num_instances, num_trajs, problem_type="milp", cutoff=1000):
+def train_PG_Agent(log, num_episodes, num_instances, num_trajs, problem_type="milp", cutoff=1000, lr=1e-3, gamma=.99):
     gen = get_generator(problem_type)
-    agent = get_agent(problem_type, "pg")  # TODO: set to PG agent
+    agent = get_agent(problem_type, "pg", lr, gamma)  # TODO: set to PG agent
 
     rewards_history = []
     nodes_history = []
