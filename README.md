@@ -26,7 +26,7 @@ Train a Meta-RL agent that, at every decision point inside a Branch-and-Bound (B
 
 ---
 
-## Why Option A (SCIP + PySCIPOpt)?
+## SCIP + PySCIPOpt?
 - SCIP exposes internal B&B callbacks and rich state info (LP relaxation, candidate lists, pseudo-costs, bounds, node attributes).  
 - You **do not** need to re-implement B&B — you operate on a production-quality solver.  
 - You can inject custom heuristic code and decide which heuristic to call at runtime.  
@@ -44,7 +44,7 @@ Train a Meta-RL agent that, at every decision point inside a Branch-and-Bound (B
 
 ---
 
-## Project structure (suggested)
+## Project structure
 ```
 meta-rl-bnb/
 ├─ README_optionA.md
@@ -78,23 +78,11 @@ meta-rl-bnb/
 - NumPy, pandas, gym  
 - Optional: PyTorch Geometric (for GNN models)  
 
-Example `requirements.txt`:
-```
-numpy
-pandas
-gym
-pyscipopt
-ray[rllib]
-torch
-scipy
-networkx
-```
-
 **Note:** Installing SCIP and PySCIPOpt typically requires building SCIP or using pre-built binaries. See PySCIPOpt docs and SCIP release pages for installation instructions.
 
 ---
 
-## Designing the Gym environment (detailed)
+## Designing the Gym environment
 
 We implement a Gym environment `BBEnv` that exposes to the RL agent the observation and action interfaces. The environment **does not** step at LP-solver micro-steps, but at solver decision points where the RL agent must pick a heuristic (branching, node selection, pruning).
 
@@ -107,7 +95,7 @@ Key design decisions:
 - **Time step definition:** A step corresponds to a single decision made by the agent (apply branching heuristic, or choose node selection rule). This keeps episodes long but semantically aligned with B&B.
 - **Parallelization:** Use multiple parallel environments (instances of SCIP solving different MILPs) to collect samples.
 
-### Example environment API (simplified)
+### Example environment API
 ```python
 import gym
 from gym import spaces
@@ -233,7 +221,7 @@ For each of the top-K candidate variables (pad/truncate to K):
 
 ---
 
-## Heuristic pool examples (concrete implementations)
+## Heuristic pool examples
 
 ### Branching heuristics (callables)
 - `most_infeasible_branching(model, node)`: pick variable with largest fractional part
@@ -259,7 +247,7 @@ def heuristic_name(model, node, **kwargs) -> HeuristicDecision
 
 ---
 
-## Reward design — best practices and examples
+## Reward design
 
 Reward shaping is crucial. Some candidate reward formulations:
 
@@ -294,7 +282,7 @@ Start simple and progress to more advanced:
 - Network: 3 hidden layers (256, 256, 128), ReLU activations
 - Output: softmax over heuristics (Discrete action)
 
-### 2. Advanced: GNN-based policy (state-of-the-art)
+### 2. Advanced: GNN-based policy
 - Build bipartite graph (variables, constraints) and node features from current LP
 - Use a GNN (e.g., GraphSAGE, GAT) to embed variable nodes and aggregate into a node-level representation
 - Output: policy head that attends to candidate variable embeddings and selects a heuristic index (or variable to branch if using continuous actions)
@@ -304,7 +292,7 @@ Start simple and progress to more advanced:
 
 ---
 
-## Training pipeline (concrete steps)
+## Training pipeline
 
 1. **Dataset**: prepare a set of MILP instances (MIPLIB subset or generated instances). Split into train/val/test. Keep test unseen for final evaluation.
 2. **Environment server**: create parallel environment workers (Ray actors) that launch SCIP processes and run until they require an action (callback).
@@ -366,115 +354,3 @@ Use statistical tests (paired t-tests, bootstrap) across instance sets to compar
 - **Feature caching:** computing expensive features (like strong-branching scores) for many candidate variables can be costly. Limit to top-K or use approximations.
 - **Curriculum learning:** start with small instances and a short time limit, then gradually increase difficulty.
 - **Determinism:** to reproduce experiments, fix random seeds in SCIP, PyTorch, and numpy. Note that exact determinism may be hard because SCIP uses heuristics and numeric solver internals.
-
----
-
-## Example research/experiments to run
-
-1. **Baseline comparison**: RL agent vs SCIP default on 100 test instances (time limit: 300s).
-2. **Ablation**: control only branching vs control both branching and node selection.
-3. **Pool size effect**: vary size of heuristic pools (3, 6, 12) and measure learning stability.
-4. **Generalization**: train on family A, test on family B (different problem structure).
-5. **Compute vs performance trade-off**: include strong branching (expensive) in pool and measure when the agent chooses it and the net benefit.
-
----
-
-## Example minimal code snippets
-
-### Extracting state from SCIP
-```python
-def extract_state_from_scip(model):
-    node = model.getCurrentNode()
-    state = {}
-    state['depth'] = node.getDepth()
-    state['num_frac'] = count_fractional_vars(model)
-    state['best_bound'] = model.getLowerbound()
-    state['incumbent'] = model.getUpperbound()
-    # candidate variables - top K by fractionality
-    candidates = []
-    for var in model.getLPBranchCands():
-        val = model.getSolVal(None, var)  # LP value
-        frac = abs(val - round(val))
-        candidates.append((var.name, val, frac))
-    # sort, pad/truncate
-    state['candidates'] = candidates[:K]
-    return state
-```
-
-### Mapping an action to branching call
-```python
-def apply_branching_action(model, node, action_idx, branch_pool):
-    heuristic = branch_pool[action_idx]
-    decision = heuristic(model, node)
-    # decision can be variable to branch on or a SCIP branching call directly
-    if isinstance(decision, tuple):  # (variable, direction)
-        var, dir = decision
-        model.branchVar(var)
-    else:
-        # assume heuristic already applied branching via model API
-        pass
-```
-
----
-
-## Reproducibility & experiment logging
-
-- Use Weights & Biases or TensorBoard to log:
-  - episode rewards, loss, learning rate
-  - per-instance solving time and nodes
-  - anytime performance curves (incumbent vs time)
-- Save checkpoints of policies and the exact Git commit hash.
-- Log versions of SCIP and PySCIPOpt.
-
----
-
-## Potential pitfalls & failure modes
-
-- **Sparse rewards**: slow training. Use shaped stepwise rewards.
-- **Overfitting to instance set**: train on varied instances and hold out a test set.
-- **Expensive heuristics in pool**: may be chosen rarely but cost training time to evaluate. Add cost penalty in reward.
-- **Nonstationary environment**: SCIP internals or versions can change. Fix solver version for experiments.
-
----
-
-## Next steps (suggested incremental plan)
-
-1. Install SCIP + PySCIPOpt and run a “hello world” SCIP Python script.  
-2. Implement a minimal SCIP wrapper and a simple heuristic pool (3 branching rules).  
-3. Implement Gym env with synchronous policy calls to verify control flow.  
-4. Train a small MLP policy on tiny MILP instances until it shows improvement over a random policy.  
-5. Scale up: parallelize training with Ray RLlib, increase instance difficulty.  
-6. Optionally, implement GNN-based state encoder and compare.
-
----
-
-## Appendix: Useful function signatures
-
-```python
-# Heuristic signature
-def branching_heuristic(model: pyscipopt.Model, node) -> Union[Variable, Tuple[Variable, str]]:
-    ...
-
-# Policy API
-class Agent:
-    def act(self, state) -> int:
-        # return index of heuristic
-        ...
-
-# SCIP wrapper
-class SCIPWrapper:
-    def __init__(self, instance_path, env):
-        ...
-    def load_instance(self):
-        ...
-    def getCurrentNode(self):
-        ...
-```
-
----
-
-## Contact / further help
-If you want, I can:
-- generate a runnable project scaffold with `env/scip_wrapper.py`, `env/gym_bb_env.py`, `env/heuristics.py`, and `agents/rllib_config.py`;
-- produce a small training example (toy MILP) that runs end-to-end on one SCIP process;
-- add a GNN policy example using PyTorch Geometric.
