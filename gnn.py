@@ -1,105 +1,149 @@
+# gnn.py
 import torch
 import numpy as np
 import torch.nn as nn
 import torch.nn.functional as F
+
 from torch_geometric.data import Data
-from torch_geometric.nn import GCNConv, global_mean_pool
+from torch_geometric.nn import GCNConv
 
 
 class BipartiteGNN(nn.Module):
-    """
-    Encode the MILP as a bipartite graph (variables + constraints).
-    We use a linear embedding 4 -> hidden_channels, then two GCN layers.
-    """
+
     def __init__(self, var_in_channels, con_in_channels,
-                 hidden_channels, num_actions, global_feat_size):
+                 hidden_channels, num_actions, global_feat_size,
+                 scalar_output=False):
         super(BipartiteGNN, self).__init__()
 
-        # Raw node input: 4 features per node (see milp_to_pyg_data)
-        self.input_emb = nn.Linear(4, hidden_channels)
+        # Set output dimension, either num_actions or scalar
+        output_dim = num_actions if not scalar_output else 1
 
-        # Graph convolutions over the bipartite graph
+        self.input_norm = nn.LayerNorm(var_in_channels)
+        self.input_emb = nn.Linear(var_in_channels, hidden_channels)
+
         self.conv1 = GCNConv(hidden_channels, hidden_channels)
         self.conv2 = GCNConv(hidden_channels, hidden_channels)
+        self.conv3 = GCNConv(hidden_channels, hidden_channels)
 
-        # MLP for global B&B features (e.g. depth, gap, fringe size)
         self.global_mlp = nn.Sequential(
             nn.Linear(global_feat_size, hidden_channels),
             nn.ReLU()
         )
 
-        # Final head: concatenated [graph_embed, global_embed] -> Q-values over actions
         self.head = nn.Sequential(
-            nn.Linear(hidden_channels * 2, hidden_channels),
+            nn.Linear(hidden_channels * 3, hidden_channels),
             nn.ReLU(),
-            nn.Linear(hidden_channels, num_actions)
+            nn.Linear(hidden_channels, output_dim)
         )
 
-    def forward(self, x, edge_index, batch, global_features):
-        # Node encoding + GCN
-        x = F.relu(self.input_emb(x))
-        x = F.relu(self.conv1(x, edge_index))
-        x = F.relu(self.conv2(x, edge_index))
+    @staticmethod
+    def _masked_mean(x, mask, batch):
 
-        # Pool all nodes into one graph-level embedding
-        graph_embed = global_mean_pool(x, batch)
-        # Encode global B&B state
-        global_embed = self.global_mlp(global_features)
+        if x.numel() == 0:
+            return x.new_zeros(0, x.size(-1))
 
-        # Merge graph-level and global features, then predict Q(s,·)
-        combined = torch.cat([graph_embed, global_embed], dim=1)
-        q_values = self.head(combined)
+        if mask.dtype != torch.bool:
+            mask = mask > 0.5
+        mask_f = mask.float()
+
+        batch = batch.to(x.device)
+        mask_f = mask_f.to(x.device)
+
+        num_graphs = int(batch.max().item()) + 1
+
+
+        sum_x = torch.zeros(
+            num_graphs, x.size(1),
+            device=x.device, dtype=x.dtype
+        )
+        sum_x.index_add_(0, batch, x * mask_f.unsqueeze(-1))
+
+
+        count = torch.zeros(
+            num_graphs,
+            device=x.device,
+            dtype=x.dtype
+        )
+        count.index_add_(0, batch, mask_f)
+        count = count.clamp(min=1.0).unsqueeze(-1)
+
+        return sum_x / count
+
+    def forward(self, x, edge_index, batch, global_features, edge_weight=None):
+        is_var = x[:, -2]
+        is_con = x[:, -1]
+
+        h = self.input_emb(self.input_norm(x))
+        h = F.relu(self.conv1(h, edge_index, edge_weight=edge_weight))
+        h = F.relu(self.conv2(h, edge_index, edge_weight=edge_weight))
+        h = F.relu(self.conv3(h, edge_index, edge_weight=edge_weight))
+
+        var_embed = self._masked_mean(h, is_var, batch)  # [B, hidden]
+        con_embed = self._masked_mean(h, is_con, batch)  # [B, hidden]
+        graph_embed = torch.cat([var_embed, con_embed], dim=1)  # [B, 2*hidden]
+
+
+        global_embed = self.global_mlp(global_features)  # [B, hidden]
+
+
+        combined = torch.cat([graph_embed, global_embed], dim=1)  # [B, 3*hidden]
+        q_values = self.head(combined)  # [B, num_actions]
+
         return q_values
 
 
 def milp_to_pyg_data(instance):
-    """
-    Convert (A, b, c, type) into a PyG Data object.
 
-    Variable nodes: [cost_feat, degree_normalized, is_var, is_con]
-    Constraint nodes: [rhs, degree_normalized, is_var, is_con]
-    """
     A, c, b = instance['A'], instance['c'], instance['b']
     ptype = instance.get('type', 'cover')
 
+    A = np.asarray(A)
+    c = np.asarray(c).astype(np.float32)
+    b = np.asarray(b).astype(np.float32)
+
     n_cons, n_vars = A.shape
+    eps = 1e-9
 
-    # For packing: c = -profit for the LP solver, so we flip sign to expose profit as a feature
-    if ptype == 'packing':
-        cost_feat = -c
-    else:
-        cost_feat = c
+ 
+    cost_feat = (-c if ptype == 'packing' else c).astype(np.float32)
 
-    # Normalized degrees for variables and constraints
-    var_degree = np.sum(A, axis=0) / max(n_cons, 1)
-    con_degree = np.sum(A, axis=1) / max(n_vars, 1)
+    var_degree = (np.count_nonzero(A, axis=0) / max(n_cons, 1)).astype(np.float32)
+    con_degree = (np.count_nonzero(A, axis=1) / max(n_vars, 1)).astype(np.float32)
 
-    # Variable node features: [cost, degree, is_var=1, is_con=0]
-    var_feats = np.stack([cost_feat, var_degree], axis=1)
-    # Constraint node features: [rhs, degree, is_var=0, is_con=1]
-    con_feats = np.stack([b, con_degree], axis=1)
 
-    var_feats_aug = np.hstack([
-        var_feats,
-        np.ones((n_vars, 1)),          # is_var
-        np.zeros((n_vars, 1))          # is_con
-    ])
-    con_feats_aug = np.hstack([
-        con_feats,
-        np.zeros((n_cons, 1)),         # is_var
-        np.ones((n_cons, 1))           # is_con
-    ])
+    row_abs_sum = (np.sum(np.abs(A), axis=1).astype(np.float32) + eps)
+    row_l2 = (np.linalg.norm(A, axis=1).astype(np.float32) + eps)
+    c_l2 = float(np.linalg.norm(c) + eps)
 
-    # Stack variable and constraint nodes into a single node feature matrix
-    x = torch.tensor(
-        np.vstack([var_feats_aug, con_feats_aug]),
-        dtype=torch.float
-    )
+    bias_norm = (b / row_abs_sum).astype(np.float32)
 
-    # Build bipartite edges:
-    #   vars indexed [0 .. n_vars-1]
-    #   constraints indexed [n_vars .. n_vars+n_cons-1]
+    dot = (A @ c).astype(np.float32)
+    obj_cos_sim = (dot / (row_l2 * c_l2)).astype(np.float32)
+
+    var_x = np.stack([
+        cost_feat,                             # main_scalar
+        var_degree,                            # degree_nnz
+        np.zeros(n_vars, dtype=np.float32),    # bias_norm (vars)
+        np.zeros(n_vars, dtype=np.float32),    # obj_cos_sim (vars)
+        np.ones(n_vars, dtype=np.float32),     # is_var
+        np.zeros(n_vars, dtype=np.float32),    # is_con
+    ], axis=1)
+
+    con_x = np.stack([
+        b,                                     # main_scalar (rhs)
+        con_degree,                            # degree_nnz
+        bias_norm,
+        obj_cos_sim,
+        np.zeros(n_cons, dtype=np.float32),    # is_var
+        np.ones(n_cons, dtype=np.float32),     # is_con
+    ], axis=1)
+
+    x = torch.tensor(np.vstack([var_x, con_x]), dtype=torch.float)
+
     rows, cols = np.nonzero(A)
+    rows = rows.astype(np.int64)
+    cols = cols.astype(np.int64)
+
     src_vc = cols
     dst_vc = rows + n_vars
     src_cv = rows + n_vars
@@ -113,4 +157,11 @@ def milp_to_pyg_data(instance):
         dtype=torch.long
     )
 
-    return Data(x=x, edge_index=edge_index)
+    coef = A[rows, cols].astype(np.float32)
+    w = (coef / row_abs_sum[rows]).astype(np.float32)
+
+    edge_weight = torch.tensor(np.concatenate([w, w]), dtype=torch.float)
+
+
+
+    return Data(x=x, edge_index=edge_index, edge_weight=edge_weight)

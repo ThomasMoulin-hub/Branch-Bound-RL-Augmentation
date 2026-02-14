@@ -5,19 +5,20 @@ import numpy as np
 
 
 class DQNAgent:
-    def __init__(self, input_dim, hidden_dim, action_dim, global_dim):
+    def __init__(self, input_dim, hidden_dim, action_dim, global_dim,
+                 lr=2e-5, gamma=0.95):
         # Main Q-network: approximates Q(s,a) using the bipartite GNN
         self.model = BipartiteGNN(
-            var_in_channels=2,
-            con_in_channels=2,
+            var_in_channels=input_dim,
+            con_in_channels=input_dim,
             hidden_channels=hidden_dim,
             num_actions=action_dim,
             global_feat_size=global_dim
         )
         # Target Q-network: same architecture, used to compute stable TD targets
         self.target_model = BipartiteGNN(
-            var_in_channels=2,
-            con_in_channels=2,
+            var_in_channels=input_dim,
+            con_in_channels=input_dim,
             hidden_channels=hidden_dim,
             num_actions=action_dim,
             global_feat_size=global_dim
@@ -27,7 +28,7 @@ class DQNAgent:
         self.target_model.eval()
 
         # Optimizer and loss (Huber / SmoothL1 is standard in DQN)
-        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=1e-3)
+        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
         self.criterion = nn.SmoothL1Loss()  # Huber loss
 
         # ε-greedy exploration parameters
@@ -37,7 +38,7 @@ class DQNAgent:
         self.action_dim = action_dim
 
         # Discount factor and target network update schedule
-        self.gamma = 0.99
+        self.gamma = gamma
         self.update_counter = 0
         self.target_update_freq = 50  # sync target net every 50 gradient updates
 

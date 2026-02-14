@@ -4,3 +4,41 @@ __pycache__/
 logs/
 checkpoints/
 scip-data/
+
+# Byte-compiled / optimized files                                                                                                                        
+__pycache__/                                                                                                                                             
+*.py[cod]                                                                                                                                                
+*.pyo                                                                                                                                                    
+                                                                                                                                                         
+# Virtual environments                                                                                                                                   
+.venv/                                                                                                                                                   
+venv/                                                                                                                                                    
+env/                                                                                                                                                     
+                                                                                                                                                         
+# Distribution / packaging                                                                                                                               
+*.egg-info/                                                                                                                                              
+dist/                                                                                                                                                    
+build/                                                                                                                                                   
+                                                                                                                                                         
+# Logs and temp files                                                                                                                                    
+*.log                                                                                                                                                    
+*.tmp                                                                                                                                                    
+*.swp                                                                                                                                                    
+*~                                                                                                                                                       
+                                                                                                                                                         
+# OS-specific stuff                                                                                                                                      
+.DS_Store                                                                                                                                                
+Thumbs.db                                                                                                                                                
+                                                                                                                                                         
+# IDE/editor configs (unless you want to share)                                                                                                          
+.vscode/                                                                                                                                                 
+.idea/                                                                                                                                                   
+                                                                                                                                                         
+# Archive                                                                                                                                                
+archive/                                                                                                                                                 
+
+# logs
+log/
+
+# Images                                                                                                                                                 
+*.png   

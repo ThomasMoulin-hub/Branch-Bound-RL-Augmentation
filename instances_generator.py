@@ -1,5 +1,19 @@
 import numpy as np
 
+problems = {
+    "milp": {"n_cons": 6, "n_var": 20, "density": 0.5}
+}
+
+
+def get_generator(problem_type: str):
+    match problem_type:
+        case "milp":
+            p = problems["milp"] # problem parameters, easier to change and personalize
+            return RandomMILPGenerator(n_cons=p["n_cons"], n_vars=p["n_var"], density=p["density"])
+        case _:
+            raise Exception("pls provide existing problem")
+        
+
 class SetCoverGenerator:
 
     def __init__(self, n_rows=50, n_cols=100, density=0.4):
@@ -29,3 +43,41 @@ class SetCoverGenerator:
 
         return {'A': A, 'c': c, 'b': b, 'type': 'cover'}
 
+
+class RandomMILPGenerator:
+
+    def __init__(self, n_cons=4, n_vars=8, density=0.5, max_coef=5):
+        self.n_cons = n_cons
+        self.n_vars = n_vars
+        self.density = density
+        self.max_coef = max_coef
+
+    def generate(self):
+        A = np.zeros((self.n_cons, self.n_vars), dtype=float)
+        mask = np.random.rand(self.n_cons, self.n_vars) < self.density
+        A[mask] = np.random.randint(1, self.max_coef + 1, size=mask.sum())
+
+   
+        # make sure no columns or row is full null
+        for i in range(self.n_cons):
+            if np.all(A[i] == 0):
+                j = np.random.randint(0, self.n_vars)
+                A[i, j] = np.random.randint(1, self.max_coef + 1)
+
+        for j in range(self.n_vars):
+            if np.all(A[:, j] == 0):
+                i = np.random.randint(0, self.n_cons)
+                A[i, j] = np.random.randint(1, self.max_coef + 1)
+
+        row_sum = A.sum(axis=1)
+        b = np.zeros(self.n_cons, dtype=float)
+        for i in range(self.n_cons):
+            rs = row_sum[i]
+            low = max(1, int(0.4 * rs))
+            high = max(low, int(0.6 * rs))
+            b[i] = np.random.randint(low, high + 1)
+
+        c = np.random.randint(1, self.max_coef + 1, size=self.n_vars).astype(float)
+
+
+        return {"A": A, "c": c, "b": b, "type": "cover"}

@@ -1,158 +1,91 @@
 import numpy as np
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-from torch_geometric.data import Data
-from torch_geometric.nn import GCNConv, global_mean_pool
-import random
+import matplotlib 
+matplotlib.use('TkAgg') #Amirreza
 import matplotlib.pyplot as plt
+from datetime import datetime
+import sys
 
+import warnings  # I dont make mistakes
+warnings.filterwarnings("ignore", message="An issue occurred while importing 'torch-scatter'")
+warnings.filterwarnings("ignore", message=".*_register_pytree_node.*")
 
-from instances_generator import SetCoverGenerator
-from gnn import BipartiteGNN, milp_to_pyg_data
-from bnb_env import *
-from dqn_agent import DQNAgent
-
-
-
-### Training and eval
-
-def get_generator(problem_type, n_rows, n_cols, density=0.4):
-    # Factory for instance generators.
-    # For now it always returns SetCoverGenerator, regardless of problem_type.
-    # You can later branch on problem_type to return packing / other MILPs.
-    if True:
-        return SetCoverGenerator(n_rows=n_rows, n_cols=n_cols, density=density)
-    else:
-        pass
-
-
-def train_rl_bnb(num_episodes=100, problem_type="cover"):
-
-    # Generator for training instances (here: set cover with given size/density)
-    gen = get_generator(problem_type, n_rows=25, n_cols=50, density=0.3)
-    # DQN agent using a GNN backbone; action_dim=3 because we have 3 node-selection heuristics
-    agent = DQNAgent(input_dim=4, hidden_dim=32, action_dim=3, global_dim=3)
-
-    rewards_history = []
-
-    print(f"Training on {num_episodes} episodes ({problem_type})...")
-
-    for episode in range(num_episodes):
-        # Sample a fresh MILP instance
-        instance = gen.generate()
-        # Create a new Branch-and-Bound environment for this instance
-        env = BBEnv(instance)
-
-        # Static graph representation of the MILP (does not change within an episode)
-        pyg_data = milp_to_pyg_data(instance)
-        # Dynamic global B&B features (change over time: depth, gap, fringe size, etc.)
-        global_state = env.get_state_features()
-
-        total_reward = 0.0
-        buffer = []          # stores transitions for this episode (simple episodic replay)
-        truncated = False    # flag to indicate early stop due to step cutoff
-
-        while not env.done:
-            # 1) Choose action (which node selection heuristic to use)
-            action = agent.get_action(pyg_data, global_state)
-            # 2) Apply action in the B&B environment
-            next_global_state, reward, done = env.step(action)
-
-            # Store transition (note: same pyg_data for current and next state)
-            buffer.append(
-                (pyg_data, global_state, action, reward,
-                 pyg_data, next_global_state, done)
-            )
-
-            global_state = next_global_state
-            total_reward += reward
-
-            # Safety cutoff on number of explored nodes (avoid runaway trees)
-            if env.steps > 1000:
-                truncated = True
-                break
-
-        # If episode was truncated, mark last transition as terminal for training
-        if truncated and buffer:
-            pyg, glob, act, rew, next_pyg, next_glob, _ = buffer[-1]
-            buffer[-1] = (pyg, glob, act, rew, next_pyg, next_glob, True)
-
-        # Single update at end of episode on all collected transitions
-        loss = agent.update(buffer)
-        rewards_history.append(total_reward)
-
-        if episode % 5 == 0:
-            print(
-                f"Episode {episode}: R = {total_reward:.2f}, "
-                f"Nodes = {env.steps}, eps = {agent.epsilon:.3f}, loss = {loss:.4f}"
-            )
-
-    return agent, rewards_history
-
-
-def evaluate_heuristics(agent=None, problem_type="cover"):
-    # New generator for evaluation (slightly different density/size if desired)
-    gen = get_generator(problem_type, n_rows=25, n_cols=50, density=0.4)
-    num_test = 50  # number of test instances
-    # We compare: learned RL policy vs pure Best-First vs pure DFS
-    results = {'RL': [], 'BestFirst': [], 'DFS': []}
-
-    orig_eps = None
-    if agent is not None:
-        orig_eps = agent.epsilon
-        agent.epsilon = 0.0  # no exploration during evaluation (pure greedy policy)
-
-    for _ in range(num_test):
-        instance = gen.generate()
-        pyg_data = milp_to_pyg_data(instance)
-
-        # RL policy
-        if agent is not None:
-            env = BBEnv(instance)
-            gs = env.get_state_features()
-            # Run B&B using the learned policy (greedy action selection)
-            while not env.done and env.steps < 600:
-                action = agent.get_action(pyg_data, gs, greedy=True)
-                gs, _, _ = env.step(action)
-            results['RL'].append(env.steps)
-
-        # BestFirst baseline (action 0 forced at every step)
-        env = BBEnv(instance)
-        while not env.done and env.steps < 600:
-            env.step(0)
-        results['BestFirst'].append(env.steps)
-
-        # DFS baseline (action 1 forced at every step)
-        env = BBEnv(instance)
-        while not env.done and env.steps < 600:
-            env.step(1)
-        results['DFS'].append(env.steps)
-
-    if agent is not None and orig_eps is not None:
-        # Restore original epsilon after evaluation
-        agent.epsilon = orig_eps
-
-    print("\n--- Average results (number of nodes explored) ---") 
-    for k, v in results.items():
-        if v:
-            print(f"{k}: {np.mean(v):.1f} nœuds")  # "nodes"
-
-    return results
+from train import train_DQN_Agent, train_PG_Agent
+from evaluate import eval_heuristics_dqn, eval_heuristics_pg, eval_heuristics_both
+from logger import Logger
+from utils.plotting import plot_series
+from agents.agent_factory import get_agent
 
 
 
 
 if __name__ == "__main__":
-    # Train the RL-controlled B&B on a set-cover distribution
-    trained_agent, history = train_rl_bnb(num_episodes=120, problem_type="cover")
 
-    # Plot cumulative reward per episode
-    plt.plot(history)
-    plt.title("Cumulative reward per episode")
-    plt.xlabel("Episode")                  
-    plt.grid(True)
-    plt.show()
+    # Create log file                                                                                                                                    
+    logfilename = "log.txt"                                                                                                                              
+    if len(sys.argv) > 1:                                                         
+        logfilename = sys.argv[1]                                                                                                                        
+    datetime_string = datetime.now().strftime("%Y-%m-%d-%H%M%S")                                                                                         
+    logfilepath = "log/" + datetime_string + "_" + logfilename
 
-    # RL vs Best-First vs DFS
-    evaluate_heuristics(trained_agent, problem_type="cover")
+    # Create log
+    log = Logger(logfilepath)
+    #log = Logger(logfilename)
+
+    problem_type = "milp"
+
+    n_train_ep = 250
+    n_train_instances = 2
+    n_train_trajs = 2
+
+    # Need more episodes for DQN to see same number of trajectories as PG
+    n_train_ep_DQN = n_train_ep * n_train_instances * n_train_trajs
+    
+    # Number of tests
+    n_test_ep = 75
+
+    # plotting settings
+    ma_window = 25
+
+    # Algorithm settings
+    lr = 1e-3
+    gamma = 0.95
+    cutoff = 250
+
+    # Log settings
+    log.joint("Run Settings:\n")
+    log.joint(f"n_train_ep {n_train_ep}\n")
+    log.joint(f"n_train_instances (pg only) {n_train_instances}\n")
+    log.joint(f"n_train_trajs (pg only) {n_train_trajs}\n")
+    log.joint(f"cutoff (pg only) {cutoff}\n")
+    log.joint(f"lr {lr}\n")
+    log.joint(f"gamma {gamma}\n")
+
+
+    # Policy Gradient Agent
+    print("\n\nTraining PG Agent...\n")
+    PG_agent, PG_rewards, PG_nodes = train_PG_Agent(log, num_episodes=n_train_ep,
+                                                    num_instances=n_train_instances,
+                                                    num_trajs=n_train_trajs,
+                                                    problem_type=problem_type,
+                                                    cutoff=cutoff,
+                                                    lr=lr,
+                                                    gamma=gamma)
+    plot_series(PG_rewards, "Reward per trajectory: Policy Gradient", "Reward", MA_window=ma_window, mode="lines", filename="PG_rew.png")
+    plot_series(PG_nodes, "Nodes explored per trajectory: Policy Gradient", "Nodes explored", MA_window=ma_window , mode="lines", filename="PG_nodes.png")
+    
+    
+    #DQN Agent
+    print("\n\nTraining DQN Agent...\n")
+    DQN_agent, DQN_rewards, DQN_nodes = train_DQN_Agent(log,num_episodes=n_train_ep_DQN,
+                                                        problem_type=problem_type,
+                                                        cutoff=cutoff,
+                                                        lr=lr,
+                                                        gamma=gamma)
+    plot_series(DQN_rewards, "Reward per trajectory: DQN", "Reward", MA_window=ma_window, filename="DQN_rew.png")
+    plot_series(DQN_nodes, "Nodes explored per trajectory: DQN", "Nodes explored", MA_window=ma_window, filename="DQN_nodes.png")
+    
+    DQN_agent = get_agent(problem_type, "dqn", lr, gamma)
+    PG_agent = get_agent(problem_type, "pg", lr, gamma)
+    eval_results = eval_heuristics_both(log, agent_dqn=DQN_agent, agent_pg=PG_agent,
+                                        problem_type=problem_type, num_test=n_test_ep, cutoff=cutoff)
+
